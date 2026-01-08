@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Calendar, Clock, User, Phone, Mail, MessageSquare } from "lucide-react";
+import { Calendar, Clock, User, Phone, Mail, MessageSquare, Loader2 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 const departments = [
   "Cardiology",
@@ -23,12 +25,66 @@ const Appointment = () => {
     time: "",
     message: "",
   });
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Handle form submission
-    console.log("Appointment request:", formData);
-    alert("Appointment request submitted! We will contact you shortly.");
+    setIsSubmitting(true);
+
+    try {
+      // Save to database
+      const { error: dbError } = await supabase
+        .from('appointments')
+        .insert({
+          name: formData.name,
+          email: formData.email,
+          phone: formData.phone,
+          department: formData.department,
+          preferred_date: formData.date,
+          preferred_time: formData.time,
+          message: formData.message || null,
+        });
+
+      if (dbError) {
+        throw new Error(dbError.message);
+      }
+
+      // Send confirmation email
+      const { error: emailError } = await supabase.functions.invoke('send-appointment-confirmation', {
+        body: {
+          name: formData.name,
+          email: formData.email,
+          phone: formData.phone,
+          department: formData.department,
+          date: formData.date,
+          time: formData.time,
+          message: formData.message,
+        },
+      });
+
+      if (emailError) {
+        console.error('Email error:', emailError);
+        // Don't fail the whole submission if just email fails
+      }
+
+      toast.success("Appointment request submitted! Check your email for confirmation.");
+      
+      // Reset form
+      setFormData({
+        name: "",
+        email: "",
+        phone: "",
+        department: "",
+        date: "",
+        time: "",
+        message: "",
+      });
+    } catch (error: any) {
+      console.error('Submission error:', error);
+      toast.error("Failed to submit appointment. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -209,8 +265,15 @@ const Appointment = () => {
                 </div>
               </div>
 
-              <Button type="submit" variant="hero" size="lg" className="w-full">
-                Book Appointment
+              <Button type="submit" variant="hero" size="lg" className="w-full" disabled={isSubmitting}>
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Submitting...
+                  </>
+                ) : (
+                  "Book Appointment"
+                )}
               </Button>
             </form>
           </div>
